@@ -2,9 +2,10 @@ import socket
 import sys
 import os
 import time
-
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+
+os.umask(000)
 
 CHUNK_SIZE = 1_000_000
 
@@ -36,9 +37,9 @@ class MyHandler(FileSystemEventHandler):
     ignore_modi = 0
 
     def on_created(self, event):
-        message = ""
+        message_to = ""
         path = ""
-        after = "A1N2D_T3H4E5N"
+        after = "T3H4E5N"
         message_type = "1"
         full_path = event.src_path
         slashes = full_path.split('\\')
@@ -53,16 +54,16 @@ class MyHandler(FileSystemEventHandler):
             with open(full_path, "r") as f:
                 detail = f.read()
         else:
-            detail = "N1o2n3e"
-        message = folder_id + after + message_type + after + path + after + the_new + after + detail
-        print(message.split(after))
-        messages_to_send.append(message.encode())
+            detail = "CREATEIT"
+        message_to = folder_id[:5] + after + message_type + after + path + after + the_new + after + detail
+        print(message_to.split(after))
+        messages_to_send.append(message_to.encode())
         self.ignore_modi = 2
 
     def on_moved(self, event):
-        message = ""
+        message_to = ""
         path = ""
-        after = "A1N2D_T3H4E5N"
+        after = "T3H4E5N"
         message_type = "2"
         full_path = event.src_path
         slashes = full_path.split('\\')
@@ -71,15 +72,15 @@ class MyHandler(FileSystemEventHandler):
         for slash in slashes:
             path = path + slash + "\\"
         new_name = (event.dest_path).split('\\')[-1]
-        message = folder_id + after + message_type + after + path + after + old_name + after + new_name
-        print(message.split(after))
-        messages_to_send.append(message.encode())
+        message_to = folder_id + after + message_type + after + path + after + old_name + after + new_name
+        print(message_to.split(after))
+        messages_to_send.append(message_to.encode())
         self.ignore_modi = 2
 
     def on_deleted(self, event):
-        message = ""
+        message_to = ""
         path = ""
-        after = "A1N2D_T3H4E5N"
+        after = "T3H4E5N"
         message_type = "3"
         full_path = event.src_path
         slashes = full_path.split('\\')
@@ -87,9 +88,9 @@ class MyHandler(FileSystemEventHandler):
         slashes.remove(slashes[-1])
         for slash in slashes:
             path = path + slash + "\\"
-        message = folder_id + after + message_type + after + path + after + old_name
-        print(message.split(after))
-        messages_to_send.append(message.encode())
+        message_to = folder_id + after + message_type + after + path + after + old_name
+        print(message_to.split(after))
+        messages_to_send.append(message_to.encode())
         self.ignore_modi = 2
 
     def on_modified(self, event):
@@ -97,9 +98,9 @@ class MyHandler(FileSystemEventHandler):
             self.ignore_modi -= 1
             return
         else:
-            message = ""
+            message_to = ""
             path = ""
-            after = "A1N2D_T3H4E5N"
+            after = "T3H4E5N"
             message_type = "4"
             full_path = event.src_path
             slashes = full_path.split('\\')
@@ -115,9 +116,9 @@ class MyHandler(FileSystemEventHandler):
                     detail = f.read()
             else:
                 detail = "N1o2n3e"
-            message = (folder_id + after + message_type + after + path + after + the_new + after + detail).encode()
-            print(message.split(after))
-            messages_to_send.append(message)
+            print(message_to.split(after))
+            message_to = (folder_id + after + message_type + after + path + after + the_new + after + detail).encode()
+            messages_to_send.append(message_to)
 
 
 def generate_dir_tree(client_identifier):
@@ -195,6 +196,8 @@ def change_name(message):
 
 def send_files(fold_path):
     for filename in os.listdir(fold_path):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect((server_ip, int(server_port)))
         after = "A1N2D"
         f = os.path.join(fold_path, filename)
         # checking if it is a file
@@ -205,7 +208,7 @@ def send_files(fold_path):
         else:
             # message = folder_id + after + message_type + after + path + after + the_new + after + detail
             s.send((folder_id[:5] + after + "1" + after + fold_path + after + filename + after + "CREATEIT").encode())
-            data = s.recv(128)
+            data = s.recv(CHUNK_SIZE)
             send_files(os.path.join(fold_path, filename))
 
 
@@ -223,6 +226,13 @@ if "__name__==__main__":
         is_new = 1
     else:
         folder_id = sys.argv[5]
+
+    # WATCHDOG
+    event_handler = MyHandler()
+    observer = Observer()
+    observer.schedule(event_handler, path=folder_path, recursive=True)
+    observer.start()
+
     # w = Watcher(curr_path, MyHandler())
     # w.run()
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -231,37 +241,37 @@ if "__name__==__main__":
         s.send(folder_id.encode())
     else:
         s.send(b'new_client')
-        folder_id = s.recv(128)
+        folder_id = s.recv(CHUNK_SIZE)
         folder_id = folder_id.decode(utf)
         s.send(os.path.basename(folder_path).encode())
         send_files(folder_path)
     s.close()
     while True:
         time.sleep(sleep_time)
-
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect((server_ip, int(server_port)))
 
         if len(messages_to_send) != 0:
             for message in messages_to_send:
                 s.send(message)
+                messages_to_send.remove(message)
+                pass
+        else:
             s.send(folder_id.encode())
-            s.close()
-        s.send(folder_id.encode())
-        data = s.recv(128)
+        data = s.recv(CHUNK_SIZE)
         # there are actions to be made
         if str.isdecimal(data.decode(utf)):
             i = int(data.decode(utf))
             for message_num in range(0, i):
-                data = s.recv(128)
-                if data.decode(utf).split("A1N2D_T3H4E5N")[1] == 1:
-                    create_name(data.decode(utf).split("A1N2D_T3H4E5N"))
-                if data.decode(utf).split("A1N2D_T3H4E5N")[1] == 2:
-                    move_name(data.decode(utf).split("A1N2D_T3H4E5N"))
-                if data.decode(utf).split("A1N2D_T3H4E5N")[1] == 3:
-                    del_name(data.decode(utf).split("A1N2D_T3H4E5N"))
-                if data.decode(utf).split("A1N2D_T3H4E5N")[1] == 4:
-                    change_name(data.decode(utf).split("A1N2D_T3H4E5N"))
+                data = s.recv(CHUNK_SIZE)
+                if data.decode(utf).split("T3H4E5N")[1] == 1:
+                    create_name(data.decode(utf).split("T3H4E5N"))
+                if data.decode(utf).split("T3H4E5N")[1] == 2:
+                    move_name(data.decode(utf).split("T3H4E5N"))
+                if data.decode(utf).split("T3H4E5N")[1] == 3:
+                    del_name(data.decode(utf).split("T3H4E5N"))
+                if data.decode(utf).split("T3H4E5N")[1] == 4:
+                    change_name(data.decode(utf).split("T3H4E5N"))
 
         # server did not want to send anything
         if data.decode(utf) == "N1O2T3H4I5N6G7":
@@ -271,14 +281,13 @@ if "__name__==__main__":
             send_files(folder_path)
         # server is updating the client
         else:
-            if data.decode(utf).split("A1N2D_T3H4E5N")[0] == folder_id:
-                if data.decode(utf).split("A1N2D_T3H4E5N")[1] == 1:
-                    create_name(data.decode(utf).split("A1N2D_T3H4E5N"))
-                if data.decode(utf).split("A1N2D_T3H4E5N")[1] == 2:
-                    move_name(data.decode(utf).split("A1N2D_T3H4E5N"))
-                if data.decode(utf).split("A1N2D_T3H4E5N")[1] == 3:
-                    del_name(data.decode(utf).split("A1N2D_T3H4E5N"))
-                if data.decode(utf).split("A1N2D_T3H4E5N")[1] == 4:
-                    change_name(data.decode(utf).split("A1N2D_T3H4E5N"))
-
+            if data.decode(utf).split("T3H4E5N")[0] == folder_id:
+                if data.decode(utf).split("T3H4E5N")[1] == 1:
+                    create_name(data.decode(utf).split("T3H4E5N"))
+                if data.decode(utf).split("T3H4E5N")[1] == 2:
+                    move_name(data.decode(utf).split("T3H4E5N"))
+                if data.decode(utf).split("T3H4E5N")[1] == 3:
+                    del_name(data.decode(utf).split("T3H4E5N"))
+                if data.decode(utf).split("T3H4E5N")[1] == 4:
+                    change_name(data.decode(utf).split("T3H4E5N"))
     # send_files(folder_path)
